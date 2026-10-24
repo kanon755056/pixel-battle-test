@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>像素對戰</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap">
+<style>
+:root{--bg:#e9ecf6;--fg:#1a1c2c;--panel:#ffffff;--line:#1a1c2c;--muted:#566c86;--accent:#ffcd75;color-scheme:light;
+  box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111322;--fg:#f4f4f4;--panel:#1a1c2c;--line:#566c86;--muted:#94b0c2;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111322;--fg:#f4f4f4;--panel:#1a1c2c;--line:#566c86;--muted:#94b0c2;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:"DotGothic16","PingFang TC","Microsoft JhengHei",sans-serif;
+  display:flex;justify-content:center;padding:20px 14px 28px}
+main{width:100%;max-width:640px}
+h1{font-size:22px;font-weight:400;margin:0 0 4px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 14px}
+.stage{border:4px solid var(--line);background:#29366f;line-height:0}
+canvas{width:100%;height:auto;display:block;image-rendering:pixelated;image-rendering:crisp-edges}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:14px 0}
+.stat{background:var(--panel);border:3px solid var(--line);padding:8px 6px;text-align:center;font-size:13px;color:var(--muted)}
+.stat b{display:block;font-weight:400;font-size:20px;color:var(--fg);margin-top:2px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+button{font:inherit;font-size:16px;color:#1a1c2c;background:var(--accent);border:3px solid var(--line);
+  box-shadow:0 5px 0 var(--line);padding:12px 8px;cursor:pointer;line-height:1.4;touch-action:manipulation}
+button small{display:block;font-size:13px;opacity:.8}
+button:active:not(:disabled){transform:translateY(4px);box-shadow:0 1px 0 var(--line)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.foot{margin-top:18px;color:var(--muted);font-size:13px;line-height:1.6}
+</style>
+</head>
+<body>
+<main>
+  <h1>像素對戰</h1>
+  <p class="sub">目前敵人：<span id="ename">—</span></p>
+  <div class="stage"><canvas id="c" width="320" height="160" aria-label="戰鬥畫面"></canvas></div>
+
+  <div class="stats">
+    <div class="stat">金幣<b id="gold">0</b></div>
+    <div class="stat">擊殺<b id="kills">0</b></div>
+    <div class="stat">攻擊力<b id="atk">25</b></div>
+    <div class="stat">攻擊間隔<b id="itv">0.50s</b></div>
+  </div>
+
+  <div class="btns">
+    <button id="upAtk"></button>
+    <button id="upSpd"></button>
+  </div>
+
+  <p class="foot">擊倒敵人可獲得 10 金幣。每級攻擊力 +5，每級攻擊間隔 −0.05 秒（最快 0.10 秒）。</p>
+</main>
+
+<script>
+(function(){
+  var C={k:'#1a1c2c',h:'#94b0c2',s:'#f4c79b',b:'#3b5dc9',r:'#e63946',w:'#f4f4f4',y:'#ffcd75',n:'#8b5a2b',g:'#38b764',d:'#257179',p:'#7a3cb0'};
+  var HERO=[
+    "....rr......","...hhhhh....","..hhhhhhh...","..hsksshh...","..hsssssh...","...sssss....",
+    "..bbbbbb..w.",".sbbbbbbb.w.",".sbbbbbbb.w.","..bbbbbb.yyy","..bb..bb..n.","..bb..bb....","..kk..kk....","..kkk.kkk..."];
+  var SLIME=[
+    "............","....gggg....","..gggggggg..",".ggkggggkgg.",".gggggggggg.","ggggkkkkgggg","gggggggggggg",".dddddddddd."];
+  var BAT=[
+    "p..........p","pp...pp...pp","ppp.pppp.ppp","pppppppppppp",".pprpppprpp.","..pppppppp..","...pwppwp...","....pppp...."];
+  var SKULL=[
+    "...wwwwww...","..wwwwwwww..",".wwwwwwwwww.",".wwkkwwkkww.",".wwkkwwkkww.",".wwwwwwwwww.","..wwwkkwww..","...wwwwww...","...w.ww.w...","...wwwwww..."];
+  var ENEMIES=[{name:'史萊姆',map:SLIME},{name:'蝙蝠',map:BAT},{name:'骷髏',map:SKULL}];
+
+  var cv=document.getElementById('c'), ctx=cv.getContext('2d');
+  var W=cv.width,H=cv.height,S=6,GROUND=130,HERO_X=36,ENEMY_X=W-36-12*S,LUNGE=ENEMY_X-HERO_X-12*S-4;
+  var stars=[[20,14],[70,30],[120,10],[170,26],[230,12],[280,34],[300,8],[150,44]];
+
+  var gold=0,kills=0,atkLv=1,spdLv=1,MAXSPD=9;
+  function power(){return 25+5*(atkLv-1)}
+  function interval(){return Math.max(100,500-50*(spdLv-1))}
+  function cost(lv){return 10*lv+10}
+
+  var enemy,atk={active:false,start:0,dur:0,hit:false},nextAttack=0,floats=[];
+  function spawn(now){
+    var t=Math.floor(Math.random()*ENEMIES.length);
+    enemy={type:t,hp:100,state:'spawning',t0:now,shakeUntil:0,flashUntil:0};
+    document.getElementById('ename').textContent=ENEMIES[t].name;
+  }
+
+  function sprite(map,x,y,flash){
+    for(var r=0;r<map.length;r++)for(var c=0;c<map[r].length;c++){
+      var ch=map[r].charAt(c); if(ch==='.')continue;
+      ctx.fillStyle=flash?'#ffffff':C[ch];
+      ctx.fillRect(Math.round(x+c*S),Math.round(y+r*S),S,S);
+    }
+  }
+
+  function hit(now){
+    if(enemy.state!=='alive')return;
+    var dmg=power();
+    enemy.hp=Math.max(0,enemy.hp-dmg);
+    enemy.shakeUntil=now+170; enemy.flashUntil=now+90;
+    floats.push({x:ENEMY_X+20+Math.random()*20,y:40,born:now,text:'-'+dmg});
+    if(enemy.hp===0){enemy.state='dying';enemy.t0=now;gold+=10;kills++;ui();}
+  }
+
+  function frame(now){
+    if(!enemy)spawn(now);
+    if(enemy.state==='dying'&&now-enemy.t0>=350)spawn(now);
+    else if(enemy.state==='spawning'&&now-enemy.t0>=250)enemy.state='alive';
+
+    if(enemy.state==='alive'){
+      if(!atk.active&&now>=nextAttack){
+        atk={active:true,start:now,dur:Math.min(240,interval()*0.8),hit:false};
+        nextAttack=now+interval();
+      }
+    }else if(!atk.active){nextAttack=now+200}
+
+    var hx=0;
+    if(atk.active){
+      var p=(now-atk.start)/atk.dur;
+      if(p>=1)atk.active=false;
+      else{hx=Math.sin(p*Math.PI)*LUNGE; if(p>=0.5&&!atk.hit){atk.hit=true;hit(now)}}
+    }
+
+    // background
+    ctx.fillStyle='#29366f';ctx.fillRect(0,0,W,H);
+    ctx.fillStyle='#3b5dc9';ctx.fillRect(0,90,W,40);
+    ctx.fillStyle='#f4f4f4';
+    for(var i=0;i<stars.length;i++)ctx.fillRect(stars[i][0],stars[i][1],2,2);
+    ctx.fillStyle='#257179';ctx.fillRect(0,GROUND,W,H-GROUND);
+    ctx.fillStyle='#38b764';ctx.fillRect(0,GROUND,W,4);
+
+    // hero
+    var bob=Math.round(Math.sin(now/300)*1.5);
+    sprite(HERO,HERO_X+hx,GROUND-HERO.length*S+bob,false);
+
+    // enemy
+    var def=ENEMIES[enemy.type].map,eh=def.length*S;
+    var ex=ENEMY_X,ey=GROUND-eh,alpha=1;
+    if(now<enemy.shakeUntil)ex+=Math.round((Math.random()*2-1)*5);
+    if(enemy.state==='dying'){var q=(now-enemy.t0)/350;alpha=1-q;ey+=Math.round(q*16)}
+    if(enemy.state==='spawning'){var q2=(now-enemy.t0)/250;alpha=q2;ey-=Math.round((1-q2)*14)}
+    ctx.globalAlpha=Math.max(0,Math.min(1,alpha));
+    sprite(def,ex,ey,now<enemy.flashUntil);
+    ctx.globalAlpha=1;
+
+    // hp bar
+    var bw=12*S,bx=ENEMY_X,by=22;
+    ctx.fillStyle='#1a1c2c';ctx.fillRect(bx-2,by-2,bw+4,10);
+    ctx.fillStyle='#566c86';ctx.fillRect(bx,by,bw,6);
+    ctx.fillStyle='#e63946';ctx.fillRect(bx,by,Math.round(bw*enemy.hp/100),6);
+    ctx.font='10px "DotGothic16", monospace';ctx.textAlign='center';
+    ctx.fillStyle='#f4f4f4';ctx.fillText(enemy.hp+' / 100',bx+bw/2,by-6);
+
+    // floating damage
+    ctx.font='bold 14px "DotGothic16", monospace';
+    for(var f=floats.length-1;f>=0;f--){
+      var age=now-floats[f].born;
+      if(age>650){floats.splice(f,1);continue}
+      ctx.globalAlpha=1-age/650;
+      var fy=floats[f].y+30-age/650*26;
+      ctx.lineWidth=3;ctx.strokeStyle='#1a1c2c';ctx.strokeText(floats[f].text,floats[f].x,fy);
+      ctx.fillStyle='#ffcd75';ctx.fillText(floats[f].text,floats[f].x,fy);
+    }
+    ctx.globalAlpha=1;
+    requestAnimationFrame(frame);
+  }
+
+  function $(id){return document.getElementById(id)}
+  function ui(){
+    $('gold').textContent=gold;$('kills').textContent=kills;
+    $('atk').textContent=power();$('itv').textContent=(interval()/1000).toFixed(2)+'s';
+    var a=$('upAtk'),s=$('upSpd');
+    a.innerHTML='升級攻擊力 Lv.'+atkLv+'<small>+5 攻擊力・'+cost(atkLv)+' 金幣</small>';
+    a.disabled=gold<cost(atkLv);
+    if(spdLv>=MAXSPD){s.innerHTML='攻擊速度 Lv.'+spdLv+'<small>已達上限</small>';s.disabled=true}
+    else{s.innerHTML='升級攻擊速度 Lv.'+spdLv+'<small>−0.05 秒・'+cost(spdLv)+' 金幣</small>';s.disabled=gold<cost(spdLv)}
+  }
+  $('upAtk').addEventListener('click',function(){if(gold>=cost(atkLv)){gold-=cost(atkLv);atkLv++;ui()}});
+  $('upSpd').addEventListener('click',function(){if(spdLv<MAXSPD&&gold>=cost(spdLv)){gold-=cost(spdLv);spdLv++;ui()}});
+
+  ui();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
